@@ -1,0 +1,33 @@
+# secrets and local state: must never enter an image
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+alert.json
+
+# git / CI / editor
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# python junk
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# not needed to build or run the image
+eval/results/
+frontend/
+deploy/
+docs/
+*.md
+Dockerfile
+docker-compose*.yml
+.dockerignore

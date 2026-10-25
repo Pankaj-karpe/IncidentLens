@@ -1,0 +1,38 @@
+venv/
+.env
+__pycache__/# secrets: NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+build/
+dist/
+
+# tests, tooling, results
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+eval/results/
+
+# local scratch
+alert.json
+*.log
+.DS_Store
+Thumbs.db
+
+# editors
+.vscode/
+.idea/
+
+# docker local overrides
+docker-compose.override.yml

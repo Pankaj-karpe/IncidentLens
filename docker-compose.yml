@@ -1,0 +1,199 @@
+# IncidentLens full stack: Postgres+pgvector, RabbitMQ, migrations, API, worker, frontend.
+#   docker compose up -d --build            build the images and start everything
+#   docker compose exec api python -m app.cli create-user alice --role sre
+#   docker compose --profile test run --rm test      tests on a throwaway DB
+#   docker compose --profile test down
+#   docker compose push / pull              publish or fetch the images (names set below)
+#
+# Secrets (POSTGRES_PASSWORD, RABBITMQ_PASSWORD) come from .env. Nothing secret lives in this file,
+# and Compose refuses to start when they are missing (the ":?" syntax).
+# Every published port is bound to 127.0.0.1: only THIS machine can reach it.
+# To open one to your network, change e.g. "127.0.0.1:3000:3000" to "3000:3000".
+#
+# Prometheus, Loki and Ollama run on YOUR machine, so containers reach them via host.docker.internal.
+#   Loki/Prometheus: kubectl port-forward --address 0.0.0.0 ...   (127.0.0.1 is unreachable from containers)
+#   Ollama:          setx OLLAMA_HOST 0.0.0.0, then restart Ollama
+# If a source is unreachable the app degrades gracefully, as designed.
+name: incidentlens
+
+# Rotate container logs, otherwise they grow without limit.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Settings that must differ inside Docker. These OVERRIDE the localhost values from .env.
+x-app-env: &app-env
+  DATABASE_URL: "postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/IncidentLens"
+  ALEMBIC_URL: "postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/IncidentLens"
+  BROKER_URL: "amqp://incidentlens:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672//"
+  PROMETHEUS_URL: http://host.docker.internal:9090
+  LOKI_URL: http://host.docker.internal:3100
+  LLM_FALLBACK_BASE_URL: http://host.docker.internal:11434/v1
+  PUBLIC_BASE_URL: "${PUBLIC_WEB_URL:-http://localhost:3000}"   # "Open incident" links in Slack/email
+
+# One image, three roles (migrate / api / worker): only the command differs.
+x-app: &app
+  build:
+    context: .
+    target: runtime
+  image: "${BACKEND_IMAGE:-pankajkarpe1.incidentlens-backend:v1}"
+  env_file: .env   # SECRET_KEY, WEBHOOK_TOKEN, Gemini key, Slack webhook ...
+  environment: *app-env
+  extra_hosts: ["host.docker.internal:host-gateway"]    # needed on Linux; harmless on Docker Desktop
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  logging: *default-logging
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment: 
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: IncidentLens
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"     # pgAdmin: localhost:5434
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d IncidentLens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    hostname: rabbitmq   # fixed node name: the volume below is only reused if this never changes
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: incidentlens      # no "guest"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq    # queued triage/postmortem jobs survive a restart
+    ports:
+      - "127.0.0.1:15673:15672"         # management UI: http://localhost:15673 (user: incidentlens)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+
+  migrate:                               # one-shot: alembic upgrade head, then exits
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+
+  api:
+    <<: *app
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8001:8000"
+    read_only: true                      # if something needs to write, remove this line
+    tmpfs: ["/tmp"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:                         # /readyz also proves the database is reachable
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m                   # logins use ~64 MB each (argon2): raise this if you see OOM kills
+
+  worker:
+    <<: *app
+    restart: unless-stopped
+    # --pool=threads (not prefork): the Prometheus counters live in ONE process, so
+    # http://localhost:9101/metrics shows what the tasks did. Concurrency is low on purpose
+    # (Gemini's free tier has tight rate limits).
+    command: ["celery", "-A", "app.workers.celeryapp", "worker", "--loglevel=info",
+              "--pool=threads", "--concurrency=2", "-Q", "incidentlens"]
+    ports:
+      - "127.0.0.1:9101:9101"
+    read_only: true
+    tmpfs: ["/tmp"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rabbitmq: {condition: service_healthy}
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the JavaScript at build time. This is the address your BROWSER uses to reach the API.
+        NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:8001}"
+    image: "${FRONTEND_IMAGE:-pankajkarpe1/incidentlens-frontend:v1}"
+    restart: unless-stopped
+    init: true                           # reaps zombie processes, forwards signals
+    ports:
+      - "127.0.0.1:3000:3000"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *default-logging
+    depends_on:
+      api: {condition: service_healthy}
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ---------------- tests: only with --profile test ----------------
+  # These passwords are fine as literals: the database has NO published port, lives in memory
+  # and disappears on "down". The test container never sees your .env or real keys.
+  postgres-test:
+    profiles: ["test"]
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: incidentlens_test
+    tmpfs: ["/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d incidentlens_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    image: incidentlens:test
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:test@postgres-test:5432/incidentlens_test
+      ALEMBIC_URL: postgresql+psycopg://postgres:test@postgres-test:5432/incidentlens_test
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:test@postgres-test:5432/incidentlens_test
+      BROKER_URL: memory://
+    depends_on:
+      postgres-test: {condition: service_healthy}
+    command: ["sh", "-c", "alembic upgrade head && pytest -v && python -m eval.run_eval --no-llm"]
+
+volumes:
+  pgdata:
+  rabbitmqdata:
