@@ -38,8 +38,8 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))   # so "import app" works however this file is started
 
-from app.ai import prompts
-from app.config import settings
+from app.ai import prompts   # noqa: E402
+from app.config import settings  # noqa: E402
 
 CASES_FILE = Path(__file__).with_name("incidents.json")
 RESULTS_DIR = Path(__file__).with_name("results")

@@ -42,14 +42,14 @@ def build_embedding_text(incident: models.Incident, annotations: dict) -> str:
     (get all the incident info and redact it)
     """
     ctx = incident.context or {}
-    log_lines = [l.get("line", "") for l in ((ctx.get("logs") or {}).get("lines") or [])[:3]]
+    log_lines = [entry.get("line", "") for entry in ((ctx.get("logs") or {}).get("lines") or [])[:3]]
     parts = [
         f"alert: {incident.title}",
         f"service: {incident.service or 'unknown'}",
         f"severity: {incident.severity or 'unknown'}",
         f"summary: {annotations.get('summary', '')}",
         f"description: {annotations.get('description', '')}",
-        *[f"log: {l}" for l in log_lines],
+        *[f"log: {line}" for line in log_lines],
     ]
     return redact_text("\n".join(parts))[:4000]
 
