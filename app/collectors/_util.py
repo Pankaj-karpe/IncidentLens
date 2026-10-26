@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.:\-]")
 
@@ -10,7 +10,7 @@ def safe_label(value: str | None) -> str:
 
 
 def as_utc(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 def iso_z(dt: datetime) -> str:
     """formats the datetime """

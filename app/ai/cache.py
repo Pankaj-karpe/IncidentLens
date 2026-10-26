@@ -8,16 +8,19 @@ within our allowed time window (CACHE_TTL_MINUTES) and was marked successful
 making a costly new call to the AI model.
 """
 
-from sqlalchemy.orm import Session
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
-from datetime import datetime, timezone, timedelta
+from sqlalchemy.orm import Session
+
 from .. import models
 from ..config import settings
+
 
 def find_cached_triage(db: Session, incident: models.Incident) -> models.Incident | None:
     if not incident.fingerprint or settings.CACHE_TTL_MINUTES <= 0:
         return None
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.CACHE_TTL_MINUTES)
+    cutoff = datetime.now(UTC) - timedelta(minutes=settings.CACHE_TTL_MINUTES)
     return db.scalar(
         select(models.Incident).where(
             models.Incident.fingerprint == incident.fingerprint,

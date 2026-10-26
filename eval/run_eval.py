@@ -31,15 +31,15 @@ import hashlib
 import json
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))   # so "import app" works however this file is started
 
-from app.ai import prompts        # noqa: E402
-from app.config import settings   # noqa: E402
+from app.ai import prompts
+from app.config import settings
 
 CASES_FILE = Path(__file__).with_name("incidents.json")
 RESULTS_DIR = Path(__file__).with_name("results")
@@ -208,7 +208,9 @@ def main() -> int:
 
     if run_llm:
         from app.ai.client import is_configured
-        from app.workers.tasks import _cap_confidence   # the SAME guardrail production uses
+        from app.workers.tasks import (
+            _cap_confidence,  # the SAME guardrail production uses
+        )
         if not is_configured():
             print("LLM is not configured (set LLM_API_KEY / LLM_BASE_URL in .env), or use --no-llm")
             return 2
@@ -230,7 +232,7 @@ def main() -> int:
             print(f"PASS  {case['id']:<28}  (passed earlier with {old['model']}, reused)")
             continue
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         incident, annotations, similar = build_incident(case, now)
         system, user = prompts.build_triage_messages(incident, annotations, similar)
         checks = prompt_checks(case, user)

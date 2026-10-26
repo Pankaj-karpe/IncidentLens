@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import security
-from .routers import alerts, incidents, health, auth
 from .database import engine
 from .observability import metrics, tracing
+from .routers import alerts, auth, health, incidents
 
 security.validate_auth_settings()    # refuse to start with a missing/weak SECRET_KEY
 

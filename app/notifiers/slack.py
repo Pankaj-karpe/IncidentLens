@@ -12,21 +12,22 @@ Design rules:
      secret, so we keep this one call out of both.
 """
 
+import html
+import json
 import logging
 import re
+import smtplib
+import ssl
+import time
 import urllib
 import urllib.error
 import urllib.request
-import json
-import time
-import html
-import ssl
-import smtplib
-from email.message import EmailMessage
-from datetime import timezone
 from dataclasses import dataclass, field
+from datetime import UTC
+from email.message import EmailMessage
 
 from app.ai.redact import redact_text
+
 from .. import models
 from ..config import settings
 from ..observability import metrics, tracing
@@ -78,7 +79,7 @@ def _build_message(incident: models.Incident, annotations: dict) -> Message:
     sev = (incident.severity or "unknown").lower()
     service = incident.service or "unknown service"
     started = (
-        incident.started_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        incident.started_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         if incident.started_at else "unknown"
     )
     title = _one_line(_s(f"{_EMOJI.get(sev, '⚪')} [{sev.upper()}] {incident.title} on {service}"))

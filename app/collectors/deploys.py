@@ -2,11 +2,12 @@
 # were pushed to your repository shortly before the incident, 
 # helping the LLM determine if a recent deployment caused the bug.
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import httpx
 
 from app.config import settings
+
 from ._util import as_utc, iso_z
 
 logger = logging.getLogger(__name__)

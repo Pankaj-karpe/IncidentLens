@@ -6,9 +6,10 @@ Prompt templates. Two jobs:
 """
 
 import json
-from .redact import redact_obj
-from ..config import settings
+
 from .. import schema
+from ..config import settings
+from .redact import redact_obj
 
 # ---------------------------------------------------------------------------
 # System prompts. "<<SCHEMA>>" is replaced with the real JSON schema of the

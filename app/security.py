@@ -16,7 +16,7 @@ Design rules:
 import functools
 import hmac
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from argon2 import PasswordHasher
@@ -84,7 +84,7 @@ def create_access_token(user_id: int) -> tuple[str, int]:
     """Returns (jwt, seconds_until_expiry). "sub" must be a string in JWT."""
     # Encodes the user ID into a signed JWT containing expiration and issuance timestamps.
     lifetime = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     token = jwt.encode({"sub": str(user_id), "iat": now, "exp": now + lifetime},
                        settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return token, int(lifetime.total_seconds())

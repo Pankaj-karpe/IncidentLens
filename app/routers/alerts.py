@@ -1,16 +1,15 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import models, schema
+from .. import models, schema, security
 from ..database import get_db
 from ..observability import metrics
 from ..workers.enqueue import enqueue
 from ..workers.tasks import generate_postmortem, triage_incident
-from .. import models, schema, security
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -75,7 +74,7 @@ def receive_alerts(payload: schema.AlertmanagerWebhook, db: Session = Depends(ge
 
         elif a.status == "resolved" and incident:
             incident.status = "RESOLVED"
-            incident.resolved_at = _clean_ends_at(a.ends_at) or datetime.now(timezone.utc)
+            incident.resolved_at = _clean_ends_at(a.ends_at) or datetime.now(UTC)
             incident.resolved_by = "alertmanager"
             
             alert_row = db.scalar(

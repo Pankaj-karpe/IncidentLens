@@ -1,9 +1,11 @@
 import logging
 import math
+from datetime import UTC, datetime, timedelta
+
 import httpx
-from datetime import datetime, timezone, timedelta
+
+from ..config import settings
 from ._util import as_utc, iso_z, safe_label
-from .. config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,7 @@ def _summarize(values: list) -> dict | None:
 def collect(service: str, started_at: datetime) -> dict:
     # Sanitize service name and calculate metric time window
     svc = safe_label(service)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     started = min(as_utc(started_at), now)      # a future timestamp can't break the window
     lookback = timedelta(minutes=settings.LOOKBACK_MINUTES)
     start = started - lookback
