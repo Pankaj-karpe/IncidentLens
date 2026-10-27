@@ -132,7 +132,7 @@ jobs:
 
       # 2) Scan that image. The job fails on CRITICAL vulnerabilities that have a fix available,
       #    so the push below never happens. (HIGH is left out at first; add it once you are clean.)
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.image }}:scan
           severity: CRITICAL
