@@ -171,8 +171,9 @@ jobs:
 
       - name: Install kustomize
         run: |
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz | tar xz
           sudo mv kustomize /usr/local/bin/
+          kustomize version
 
       # "kustomize edit set image" rewrites ONLY the images: block of the dev overlay.
       # No sed over many files (the fragile approach from project 2).
