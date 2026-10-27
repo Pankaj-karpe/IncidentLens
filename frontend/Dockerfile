@@ -25,7 +25,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 # The browser calls the API at this address. It is PUBLIC (it ends up in the JavaScript
 # bundle), so never put a secret in a NEXT_PUBLIC_* variable.
-ARG NEXT_PUBLIC_API_URL=http://localhost:8001
+ARG NEXT_PUBLIC_API_URL=http://api.incidentlens.local
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 COPY --from=deps /app/node_modules ./node_modules
