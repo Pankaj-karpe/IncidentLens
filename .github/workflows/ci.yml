@@ -103,10 +103,10 @@ jobs:
             image: incidentlens-backend
             file: Dockerfile
             context: .
-            build_args: ""
+            build_args: NEXT_PUBLIC_API_URL=http://api.incidentlens.local
           - name: frontend
             image: incidentlens-frontend
-            file: Dockerfile
+            file: frontend/Dockerfile
             context: ./frontend
             # Baked into the JS at build time (see the frontend notes in Part 1).
             build_args: NEXT_PUBLIC_API_URL=http://api.incidentlens.local
