@@ -1,9 +1,10 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
 from app.config import settings
+
 from ._util import as_utc, iso_z, safe_label
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ ERROR_PATTERN = r"(?i)(error|exception|traceback|critical|fatal|timeout|refused|
 def collect(service: str, started_at: datetime) -> dict:
     # Sanitize service name and calculate metric time window
     svc = safe_label(service)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     started = min(as_utc(started_at), now)      # a future timestamp can't break the window
     lookback = timedelta(minutes=settings.LOOKBACK_MINUTES)
     start = started - lookback
@@ -79,7 +80,7 @@ def collect(service: str, started_at: datetime) -> dict:
             continue
         prev = trimmed
         lines.append({
-            "time": datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).isoformat(),
+            "time": datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).isoformat(),
             "line": trimmed,
         })
 

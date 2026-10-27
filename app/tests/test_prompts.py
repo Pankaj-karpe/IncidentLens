@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.ai import prompts
@@ -13,7 +13,7 @@ def make_incident(lines, metrics_error=None):
         "deploys": {"available": False, "deploys": [], "error": None},
     }
     return SimpleNamespace(title="HighErrorRate", service="backend", severity="critical",
-                           started_at=datetime(2026, 10, 23, 10, 0, tzinfo=timezone.utc), context=ctx)
+                           started_at=datetime(2026, 10, 23, 10, 0, tzinfo=UTC), context=ctx)
 
 
 def test_secrets_never_reach_the_prompt():

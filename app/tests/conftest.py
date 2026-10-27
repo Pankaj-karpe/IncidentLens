@@ -62,6 +62,7 @@ def client(monkeypatch):
         client.set_role("viewer")      client.no_user()   (= real token check)
     """
     from fastapi.testclient import TestClient
+
     from app import security
     from app.main import app
     from app.routers import alerts, incidents
@@ -96,6 +97,7 @@ def cleanup_db():
     if not TEST_DB:
         return
     from sqlalchemy import delete
+
     from app import models
     from app.database import SessionLocal
     with SessionLocal() as db:   # child tables go too: their foreign keys are ON DELETE CASCADE

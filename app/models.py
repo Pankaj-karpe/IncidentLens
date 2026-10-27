@@ -1,10 +1,20 @@
-from .database import Base
-from sqlalchemy.sql import func
-from sqlalchemy import Column, Integer, String, Text, Numeric, TIMESTAMP, ForeignKey, Index, Boolean
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    TIMESTAMP,
+    Boolean,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
-from pgvector.sqlalchemy import Vector
-from sqlalchemy.sql import func, expression
+from sqlalchemy.sql import expression, func
+
+from .database import Base
 
 EMBEDDING_DIM = 1536 
 

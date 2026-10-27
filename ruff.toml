@@ -1,0 +1,14 @@
+# Lint rules. Start small (real bugs only) so CI is useful from day one.
+# Why not enable everything: a wall of style complaints makes people ignore the linter.
+# This configuration file sets up the Ruff code checker to keep things simple by focusing 
+# only on real bugs, unused variables, and import sorting rather than overwhelming developers 
+# with strict style complaints. It targets Python 3.12 with a maximum line length of 120 
+# characters, while explicitly ignoring line-length error warnings (E501) because handling 
+# long lines is left to automated formatters.
+
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I"]      # E = pycodestyle errors, F = pyflakes (unused/undefined names), I = import order
+ignore = ["E501"]           # long lines are the formatter's job, not a failure

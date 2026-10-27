@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -64,7 +64,7 @@ def resolve_incident(incident_id: int, db: Session = Depends(get_db), user: mode
         return incident  # idempotent: no second postmortem job
 
     incident.status = "RESOLVED"
-    incident.resolved_at = datetime.now(timezone.utc)
+    incident.resolved_at = datetime.now(UTC)
     incident.resolved_by = user.username
     db.commit()
     db.refresh(incident)

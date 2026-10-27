@@ -1,0 +1,196 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel an older run of the same branch when a new commit arrives (saves minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the default token can only read the repo.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"       # must match ARG PYTHON_VERSION in the Dockerfile
+  IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  # Installs Ruff and quickly validates the entire Python codebase for static bugs and styling errors.
+  # -------------------------- lint -------------------------------------- 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ruff
+      - run: ruff check .
+
+  # Spins up a live PostgreSQL container with the pgvector extension, runs database migrations via Alembic, and executes the Pytest suite.
+  # -------------------------- test -------------------------------------- 
+  test:
+    runs-on: ubuntu-latest
+    # A real Postgres WITH pgvector, so DB tests run against the same engine as production
+    # (SQLite would hide pgvector/JSONB problems).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: incidentlens_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # conftest.py reads TEST_DATABASE_URL; DB tests are skipped without it.
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:ci-password@localhost:5432/incidentlens_test
+      # Settings are required at import time, so alembic also needs these.
+      DATABASE_URL: postgresql+psycopg://postgres:ci-password@localhost:5432/incidentlens_test
+      ALEMBIC_URL: postgresql+psycopg://postgres:ci-password@localhost:5432/incidentlens_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      # Testing the migrations is a test too: this proves a fresh database can be built from scratch.
+      - run: alembic upgrade head
+      - run: pytest -v
+
+  #Sets up Node.js, installs frontend packages securely, checks code linting, and builds the Next.js bundle with the production API URL.
+  # -------------------------- frontend -------------------------------------- 
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://api.incidentlens.local
+
+  
+  # Uses a matrix strategy to build backend and frontend images, scans them for critical security vulnerabilities using Trivy, and pushes them to Docker Hub with a unique 7-character commit SHA tag.
+  # -------------------------- build, scan, push -------------------------------------- 
+  # Runs only on main, and only if lint, test and frontend all passed.
+  build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: backend
+            image: incidentlens-backend
+            file: Dockerfile
+            context: .
+            build_args: ""
+          - name: frontend
+            image: incidentlens-frontend
+            file: Dockerfile.frontend
+            context: ./frontend
+            # Baked into the JS at build time (see the frontend notes in Part 1).
+            build_args: NEXT_PUBLIC_API_URL=http://api.incidentlens.local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # Tag = first 7 chars of the commit. Unique and traceable ("which code is running?").
+      # Never use :latest: Kubernetes cannot tell that it changed.
+      - id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # 1) Build locally only (no push yet).
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.build_args }}
+          load: true
+          tags: ${{ matrix.image }}:scan
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # 2) Scan that image. The job fails on CRITICAL vulnerabilities that have a fix available,
+      #    so the push below never happens. (HIGH is left out at first; add it once you are clean.)
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.image }}:scan
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      # 3) Only now log in and push. The layers are cached, so this takes seconds.
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.build_args }}
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+
+  # Checks out your separate Kubernetes manifests repository, uses Kustomize to update the development image tags to the latest commit hash, and commits the changes back to trigger Argo CD.
+  # ---------------------- GitOps update ------------------------------------------ 
+  # CI never touches the cluster. It only commits the new tag into the manifests repo,
+  # and Argo CD (which watches that repo) does the deploy.
+  update-manifests:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      MANIFEST_PATH: deploy/overlays/dev   # change here if your manifests repo layout differs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Pankaj-karpe/incidentlens-manifests
+          token: ${{ secrets.MANIFESTS_REPO_PAT }}
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      # "kustomize edit set image" rewrites ONLY the images: block of the dev overlay.
+      # No sed over many files (the fragile approach from project 2).
+      # Prod is not touched: it is promoted by hand later, after dev proves the tag works.
+      - name: Set new image tags
+        working-directory: ${{ env.MANIFEST_PATH }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          kustomize edit set image \
+            incidentlens-backend=${{ secrets.DOCKERHUB_USERNAME }}/incidentlens-backend:${TAG} \
+            incidentlens-frontend=${{ secrets.DOCKERHUB_USERNAME }}/incidentlens-frontend:${TAG}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --cached --quiet && { echo "No change"; exit 0; }
+          git commit -m "deploy(dev): incidentlens ${GITHUB_SHA::7}"
+          git pull --rebase origin main
+          git push origin main

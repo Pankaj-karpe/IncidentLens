@@ -1,8 +1,9 @@
 from celery import Celery
 from celery.signals import worker_ready
+
 from ..config import settings
-from ..observability import metrics, tracing
 from ..database import engine
+from ..observability import metrics, tracing
 
 celery_app = Celery("incidentlens", broker=settings.BROKER_URL)
 celery_app.conf.task_default_queue = "incidentlens"
