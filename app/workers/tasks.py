@@ -101,6 +101,10 @@ def _llm_triage(db, incident, annotations, similar):
     diagnostic diagnosis (root cause, confidence, and evidence).
     """
     if not llm_configured():
+        # Count it. The call is skipped BEFORE it is made, so without this line a missing
+        # key leaves no trace in Prometheus and the LLM failure-rate alert could never fire
+        # in the most common failure case. "failure" matches the status values used above.
+        metrics.record_llm_call("triage", "not_configured", 0, 0, 0.0, 0, False)
         return None, {"error": "LLM not configured"}
 
     # opens jaeger tracing span(llm.triage) -> assembles system & user prompts (using incident data and past similar incidents) ->
@@ -217,6 +221,9 @@ def triage_incident(incident_id: int):
         db.commit()
         logger.info("incident %s triaged, ai_status=%s", incident_id, incident.ai_status)
         metrics.INCIDENTS_TRIAGED.labels(incident.ai_status).inc()
+        # How often did the AI actually help? OK vs FALLBACK vs FAILED over time:
+        # the best "SRE for AI" signal, and it also counts the no-key fallback case.
+        metrics.TRIAGE_OUTCOME.labels(ai_status=incident.ai_status).inc()
         metrics.TRIAGE_DURATION.observe(time.perf_counter() - started)
 
         # 5. Tell the engineer (best effort; also sends when ai_status is FALLBACK,
@@ -240,6 +247,7 @@ def triage_incident(incident_id: int):
         db.rollback()
         logger.exception("triage failed for incident %s", incident_id)
         metrics.INCIDENTS_TRIAGED.labels("FAILED").inc()
+        metrics.TRIAGE_OUTCOME.labels(ai_status="FAILED").inc()
         try:  # make the failure visible instead of leaving PENDING forever
             db.execute(update(models.Incident)
                        .where(models.Incident.id == incident_id,
@@ -333,6 +341,8 @@ def _llm_postmortem(db, incident, alerts):
     saves the LLM audit metrics.
     """
     if not llm_configured():
+        # Same reason as in _llm_triage: count the skipped call so it is visible in Prometheus.
+        metrics.record_llm_call("postmortem", "not_configured", 0, 0, 0.0, 0, False)
         return None, None, "LLM not configured"
 
     try:

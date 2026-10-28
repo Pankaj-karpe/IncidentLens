@@ -72,6 +72,11 @@ TRIAGE_DURATION = Histogram(
     "Whole triage task: collect context + embed + LLM + save (notification excluded)",
     buckets=_TRIAGE_BUCKETS,
 )
+TRIAGE_OUTCOME = Counter(
+    "incidentlens_triage_total", 
+    "Triage results by AI status", 
+    ["ai_status"]
+)
 COLLECTOR_RESULTS = Counter(
     "incidentlens_collector_results_total",
     "Did each evidence source return data?",
