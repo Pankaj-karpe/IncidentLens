@@ -7,7 +7,20 @@ from ..observability import metrics, tracing
 
 celery_app = Celery("incidentlens", broker=settings.BROKER_URL)
 celery_app.conf.task_default_queue = "incidentlens"
+# --- reliability (Part 5) ---
+# Default Celery takes a job out of Redis and marks it "done" BEFORE running it:
+# kill the worker mid-job (node drain, rollout) and the job is gone.
+celery_app.conf.task_acks_late = True              # confirm a job only AFTER it finished
+celery_app.conf.task_reject_on_worker_lost = True  # if the worker dies mid-job, give the job back
+celery_app.conf.worker_prefetch_multiplier = 1     # hold only 1 waiting job per thread: the rest stays
+                                                   # visible in the Redis list (what the autoscaler counts)
+                                                   # and can go to a NEW worker
+# An unconfirmed job returns to the queue after 5 min (default: 1 hour). Safe to re-run:
+# triage skips incidents already OK, and postmortem skips existing drafts.
+celery_app.conf.broker_transport_options = {"visibility_timeout": 300}
 celery_app.autodiscover_tasks(["app.workers"])
+
+
 
 @worker_ready.connect
 def _on_worker_Ready(sender=None, **kargs):
